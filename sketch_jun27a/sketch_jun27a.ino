@@ -99,13 +99,13 @@ static constexpr uint8_t STATUS_LED_PIN = 4;
 static constexpr uint8_t LED_BRIGHTNESS = 50;
 
 // Relay outputs (active-low: LOW = relay ON).
-static constexpr uint8_t RELAY_PIN[4] = { 23, 19, 18, 5 };
+static constexpr uint8_t RELAY_PIN[4] = { 25, 33, 32, 27 };
 
 // TTP223 capacitive touch inputs.
 // GPIO 36 & 39 are input-only on ESP32: no internal pull resistors.
 // WiFi.setSleep(false) is mandatory: modem-sleep causes spurious level
 // changes on these pins (ESP32 silicon errata).
-static constexpr uint8_t SWITCH_PIN[4] = { 34, 35, 33, 32 };
+static constexpr uint8_t SWITCH_PIN[4] = { 19, 18, 17, 16 };
 
 // Relay / switch descriptions (index matches channel number).
 static constexpr const char* RELAY_DESC[4] =
