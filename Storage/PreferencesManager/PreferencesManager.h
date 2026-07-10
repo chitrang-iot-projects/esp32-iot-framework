@@ -164,18 +164,22 @@ public:
     /**
      * @brief Saves an unsigned 32-bit integer.
      *
-     * On ESP32, uint32_t, unsigned int, and unsigned long are all 32-bit.
+     * Overloads use the fundamental types (unsigned int, unsigned long) rather
+     * than uint32_t: uint32_t aliases a DIFFERENT fundamental type across ESP32
+     * core versions (unsigned int on 2.x, unsigned long on 3.x), and aliasing
+     * would make two overloads collide as redefinitions.  uint32_t callers
+     * resolve to whichever overload it aliases — both are provided.
      *
      * @param key   Descriptive key string.
      * @param value Value to persist.
      * @return PreferencesResult indicating the outcome.
      */
-    PreferencesResult save(const char* key, uint32_t value);
+    PreferencesResult save(const char* key, unsigned int value);
 
     /**
-     * @brief Saves an unsigned long (32-bit) integer.
+     * @brief Saves an unsigned long (32-bit on ESP32) integer.
      *
-     * Delegates to save(key, uint32_t) — on ESP32, unsigned long is 32-bit.
+     * Delegates to save(key, unsigned int) — same width on ESP32.
      *
      * @param key   Descriptive key string.
      * @param value Value to persist.
@@ -247,14 +251,17 @@ public:
     /**
      * @brief Loads an unsigned 32-bit integer from storage.
      *
+     * See the save(unsigned int) note on why fundamental types are used
+     * instead of uint32_t for these overloads.
+     *
      * @param key   Key used when the value was saved.
      * @param value Output variable; unchanged on error or KeyNotFound.
      * @return KeyNotFound if absent, Success on success, or an error code.
      */
-    PreferencesResult load(const char* key, uint32_t& value) const;
+    PreferencesResult load(const char* key, unsigned int& value) const;
 
     /**
-     * @brief Loads an unsigned long (32-bit) integer from storage.
+     * @brief Loads an unsigned long (32-bit on ESP32) integer from storage.
      *
      * @param key   Key used when the value was saved.
      * @param value Output variable; unchanged on error or KeyNotFound.
@@ -332,14 +339,24 @@ public:
     PreferencesResult load(const char* key, int& value, int defaultValue) const;
 
     /**
-     * @brief Loads a uint32_t, applying a default when the key is absent.
+     * @brief Loads an unsigned int, applying a default when the key is absent.
      *
      * @param key          Key to look up.
      * @param value        Output variable.
      * @param defaultValue Assigned to value when the key does not exist.
      * @return Success (key found or default applied), or an error code.
      */
-    PreferencesResult load(const char* key, uint32_t& value, uint32_t defaultValue) const;
+    PreferencesResult load(const char* key, unsigned int& value, unsigned int defaultValue) const;
+
+    /**
+     * @brief Loads an unsigned long, applying a default when the key is absent.
+     *
+     * @param key          Key to look up.
+     * @param value        Output variable.
+     * @param defaultValue Assigned to value when the key does not exist.
+     * @return Success (key found or default applied), or an error code.
+     */
+    PreferencesResult load(const char* key, unsigned long& value, unsigned long defaultValue) const;
 
     /**
      * @brief Loads a float, applying a default when the key is absent.

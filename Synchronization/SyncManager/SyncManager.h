@@ -112,6 +112,10 @@ public:
     /// 16 is sufficient for 5 categories + headroom for retries and syncAll().
     static constexpr uint8_t QUEUE_CAPACITY = 16u;
 
+    /// Maximum length (including null terminator) of the optional base path
+    /// prefix applied to every Firebase path this manager writes.
+    static constexpr uint8_t MAX_BASE_PATH_LEN = 64u;
+
     // -----------------------------------------------------------------------
     // Construction
     //
@@ -132,8 +136,14 @@ public:
      *
      * @param deviceState Reference to the DeviceStateManager that holds dirty flags.
      * @param firebase    Reference to the FirebaseManager used for cloud writes.
+     * @param basePath    Optional path prefix (e.g. "/devices/<id>") prepended to
+     *                    every Firebase path this manager writes.  Keeps multiple
+     *                    devices from colliding on the shared database root.
+     *                    Pass nullptr (default) for the legacy root-level paths.
+     *                    Must not end with '/'; truncated to MAX_BASE_PATH_LEN - 1.
      */
-    void begin(DeviceStateManager& deviceState, FirebaseManager& firebase);
+    void begin(DeviceStateManager& deviceState, FirebaseManager& firebase,
+               const char* basePath = nullptr);
 
     /**
      * @brief Periodic update — drives the sync engine one step.
@@ -339,6 +349,9 @@ private:
     // -----------------------------------------------------------------------
     DeviceStateManager* m_deviceState;
     FirebaseManager*    m_firebase;
+
+    /// Path prefix applied to every Firebase write; "" = legacy root paths.
+    char m_basePath[MAX_BASE_PATH_LEN];
 
     // -----------------------------------------------------------------------
     // Lifecycle

@@ -174,7 +174,7 @@ PreferencesResult PreferencesManager::save(const char* key, long value)
     return save(key, static_cast<int>(value));
 }
 
-PreferencesResult PreferencesManager::save(const char* key, uint32_t value)
+PreferencesResult PreferencesManager::save(const char* key, unsigned int value)
 {
     PreferencesResult check = checkReady();
     if (check != PreferencesResult::Success) return check;
@@ -197,8 +197,8 @@ PreferencesResult PreferencesManager::save(const char* key, uint32_t value)
 
 PreferencesResult PreferencesManager::save(const char* key, unsigned long value)
 {
-    // On ESP32 (32-bit), unsigned long and uint32_t are the same width.
-    return save(key, static_cast<uint32_t>(value));
+    // On ESP32 (32-bit), unsigned long and unsigned int are the same width.
+    return save(key, static_cast<unsigned int>(value));
 }
 
 PreferencesResult PreferencesManager::save(const char* key, float value)
@@ -330,7 +330,7 @@ PreferencesResult PreferencesManager::load(const char* key, long& value) const
     return result;
 }
 
-PreferencesResult PreferencesManager::load(const char* key, uint32_t& value) const
+PreferencesResult PreferencesManager::load(const char* key, unsigned int& value) const
 {
     PreferencesResult check = checkReady();
     if (check != PreferencesResult::Success) return check;
@@ -347,7 +347,7 @@ PreferencesResult PreferencesManager::load(const char* key, uint32_t& value) con
 
 PreferencesResult PreferencesManager::load(const char* key, unsigned long& value) const
 {
-    uint32_t temp = 0u;
+    unsigned int temp = 0u;
     PreferencesResult result = load(key, temp);
     if (result == PreferencesResult::Success)
     {
@@ -412,7 +412,18 @@ PreferencesResult PreferencesManager::load(const char* key, int& value, int defa
     return result;
 }
 
-PreferencesResult PreferencesManager::load(const char* key, uint32_t& value, uint32_t defaultValue) const
+PreferencesResult PreferencesManager::load(const char* key, unsigned int& value, unsigned int defaultValue) const
+{
+    PreferencesResult result = load(key, value);
+    if (result == PreferencesResult::KeyNotFound)
+    {
+        value = defaultValue;
+        return PreferencesResult::Success;
+    }
+    return result;
+}
+
+PreferencesResult PreferencesManager::load(const char* key, unsigned long& value, unsigned long defaultValue) const
 {
     PreferencesResult result = load(key, value);
     if (result == PreferencesResult::KeyNotFound)

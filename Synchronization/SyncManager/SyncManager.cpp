@@ -1,5 +1,6 @@
 #include "SyncManager.h"
 #include <stdio.h>    // snprintf for path construction
+#include <string.h>   // strncpy for base path storage
 #include <stdint.h>
 
 // =============================================================================
@@ -26,9 +27,9 @@ static constexpr uint8_t  MAX_RETRY_COUNT = 5u;       // attempts before item is
 static constexpr uint32_t RETRY_BASE_MS   = 2000UL;   // first backoff delay (ms)
 static constexpr uint32_t RETRY_MAX_MS    = 60000UL;  // ceiling for exponential backoff
 
-// Scratch buffer for building relay/switch Firebase paths.
-// "/switches/15" = 13 chars + null — 32 bytes is safe.
-static constexpr uint8_t PATH_BUF_SIZE = 32u;
+// Scratch buffer for building Firebase paths.
+// Worst case: base path (63) + "/switches/15" (12) + null = 76 — 96 is safe.
+static constexpr uint8_t PATH_BUF_SIZE = 96u;
 
 // =============================================================================
 // Construction
@@ -53,16 +54,26 @@ SyncManager::SyncManager()
     for (uint8_t i = 0u; i < QUEUE_CAPACITY; ++i) {
         m_queue[i].inUse = false;
     }
+    m_basePath[0] = '\0';
 }
 
 // =============================================================================
 // Lifecycle
 // =============================================================================
 
-void SyncManager::begin(DeviceStateManager& deviceState, FirebaseManager& firebase)
+void SyncManager::begin(DeviceStateManager& deviceState, FirebaseManager& firebase,
+                        const char* basePath)
 {
     m_deviceState = &deviceState;
     m_firebase    = &firebase;
+
+    // Store the optional path prefix; nullptr keeps the legacy root-level paths.
+    if (basePath != nullptr) {
+        strncpy(m_basePath, basePath, MAX_BASE_PATH_LEN - 1);
+        m_basePath[MAX_BASE_PATH_LEN - 1] = '\0';
+    } else {
+        m_basePath[0] = '\0';
+    }
 
     // Clear the queue — any items from a previous begin() are stale.
     for (uint8_t i = 0u; i < QUEUE_CAPACITY; ++i) {
@@ -451,8 +462,9 @@ SyncResult SyncManager::syncRelayAll()
         const RelayChannel channel = static_cast<RelayChannel>(i);
         const bool         isOn    = (m_deviceState->getRelayState(channel) == RelayState::On);
 
-        // snprintf is safe here: "/relays/" (8) + "15" (2) + null = 11 bytes < PATH_BUF_SIZE.
-        snprintf(path, sizeof(path), "%s%u", RELAY_PATH_PREFIX, static_cast<unsigned>(i));
+        // snprintf truncates safely if the base path pushes past PATH_BUF_SIZE.
+        snprintf(path, sizeof(path), "%s%s%u",
+                 m_basePath, RELAY_PATH_PREFIX, static_cast<unsigned>(i));
 
         if (!isWriteAccepted(m_firebase->set(path, isOn))) {
             return SyncResult::Failed;
@@ -470,7 +482,8 @@ SyncResult SyncManager::syncSwitchAll()
         const SwitchChannel channel  = static_cast<SwitchChannel>(i);
         const bool          isPressed = (m_deviceState->getSwitchState(channel) == SwitchState::Pressed);
 
-        snprintf(path, sizeof(path), "%s%u", SWITCH_PATH_PREFIX, static_cast<unsigned>(i));
+        snprintf(path, sizeof(path), "%s%s%u",
+                 m_basePath, SWITCH_PATH_PREFIX, static_cast<unsigned>(i));
 
         if (!isWriteAccepted(m_firebase->set(path, isPressed))) {
             return SyncResult::Failed;
@@ -482,9 +495,12 @@ SyncResult SyncManager::syncSwitchAll()
 
 SyncResult SyncManager::syncWiFiStatus()
 {
+    char path[PATH_BUF_SIZE];
+    snprintf(path, sizeof(path), "%s%s", m_basePath, WIFI_STATE_PATH);
+
     const int wifiVal = static_cast<int>(m_deviceState->getWiFiState());
 
-    if (!isWriteAccepted(m_firebase->set(WIFI_STATE_PATH, wifiVal))) {
+    if (!isWriteAccepted(m_firebase->set(path, wifiVal))) {
         return SyncResult::Failed;
     }
 
@@ -493,9 +509,12 @@ SyncResult SyncManager::syncWiFiStatus()
 
 SyncResult SyncManager::syncFirebaseStatus()
 {
+    char path[PATH_BUF_SIZE];
+    snprintf(path, sizeof(path), "%s%s", m_basePath, FIREBASE_STATE_PATH);
+
     const int fbVal = static_cast<int>(m_deviceState->getFirebaseState());
 
-    if (!isWriteAccepted(m_firebase->set(FIREBASE_STATE_PATH, fbVal))) {
+    if (!isWriteAccepted(m_firebase->set(path, fbVal))) {
         return SyncResult::Failed;
     }
 
@@ -504,14 +523,18 @@ SyncResult SyncManager::syncFirebaseStatus()
 
 SyncResult SyncManager::syncSystemStatus()
 {
+    char path[PATH_BUF_SIZE];
+
     const int  modeVal   = static_cast<int>(m_deviceState->getDeviceMode());
     const bool onlineVal = m_deviceState->isOnline();
 
-    if (!isWriteAccepted(m_firebase->set(DEVICE_MODE_PATH, modeVal))) {
+    snprintf(path, sizeof(path), "%s%s", m_basePath, DEVICE_MODE_PATH);
+    if (!isWriteAccepted(m_firebase->set(path, modeVal))) {
         return SyncResult::Failed;
     }
 
-    if (!isWriteAccepted(m_firebase->set(DEVICE_ONLINE_PATH, onlineVal))) {
+    snprintf(path, sizeof(path), "%s%s", m_basePath, DEVICE_ONLINE_PATH);
+    if (!isWriteAccepted(m_firebase->set(path, onlineVal))) {
         return SyncResult::Failed;
     }
 
