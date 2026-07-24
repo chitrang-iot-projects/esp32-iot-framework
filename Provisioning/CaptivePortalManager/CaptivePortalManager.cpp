@@ -1,0 +1,104 @@
+#include "CaptivePortalManager.h"
+
+#include <WiFi.h>
+
+static constexpr uint8_t DNS_PORT = 53;
+static const IPAddress AP_IP(192, 168, 4, 1);
+
+CaptivePortalManager::CaptivePortalManager(ConfigStore& store)
+    : m_store(store), m_server(80) {}
+
+void CaptivePortalManager::begin(const char* apSuffix)
+{
+    char ssid[40];
+    snprintf(ssid, sizeof(ssid), "HA-SETUP-%s", apSuffix);
+
+    WiFi.mode(WIFI_AP_STA);            // AP for the portal, STA so we can scan
+    WiFi.softAPConfig(AP_IP, AP_IP, IPAddress(255, 255, 255, 0));
+    WiFi.softAP(ssid);                 // open network for easy first setup
+
+    // Catch-all DNS so any hostname the phone probes resolves to us → the
+    // captive-portal popup appears automatically.
+    m_dns.start(DNS_PORT, "*", AP_IP);
+
+    m_server.on("/", [this]() { handleRoot(); });
+    m_server.on("/save", HTTP_POST, [this]() { handleSave(); });
+    m_server.onNotFound([this]() { handleNotFound(); });
+    m_server.begin();
+
+    m_active = true;
+}
+
+void CaptivePortalManager::loop()
+{
+    if (!m_active) return;
+    m_dns.processNextRequest();
+    m_server.handleClient();
+}
+
+void CaptivePortalManager::handleRoot()
+{
+    // Scan networks (synchronous — acceptable while in setup mode).
+    const int n = WiFi.scanNetworks();
+
+    String page = F(
+        "<!doctype html><html><head><meta name=viewport "
+        "content='width=device-width,initial-scale=1'>"
+        "<title>Device Setup</title><style>"
+        "body{font-family:system-ui,sans-serif;max-width:420px;margin:24px auto;padding:0 16px;color:#111}"
+        "h1{font-size:20px}label{display:block;margin:14px 0 4px;font-size:13px;color:#555}"
+        "select,input{width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box}"
+        "button{width:100%;margin-top:20px;padding:12px;font-size:16px;background:#2563eb;color:#fff;border:0;border-radius:8px}"
+        "</style></head><body><h1>Connect your device</h1>"
+        "<form method=POST action=/save>"
+        "<label>WiFi network</label><select name=ssid>");
+
+    for (int i = 0; i < n; i++)
+    {
+        page += "<option value='";
+        page += WiFi.SSID(i);
+        page += "'>";
+        page += WiFi.SSID(i);
+        page += "</option>";
+    }
+
+    page += F(
+        "</select>"
+        "<label>WiFi password</label><input type=password name=pass>"
+        "<button type=submit>Connect</button></form>"
+        "<p style='color:#888;font-size:12px;margin-top:20px'>The device will "
+        "restart and connect. It then appears in your app to be added.</p>"
+        "</body></html>");
+
+    m_server.send(200, "text/html", page);
+}
+
+void CaptivePortalManager::handleSave()
+{
+    const String ssid = m_server.arg("ssid");
+    const String pass = m_server.arg("pass");
+
+    if (ssid.isEmpty())
+    {
+        m_server.send(400, "text/html", "<p>WiFi network is required. Go back and pick one.</p>");
+        return;
+    }
+
+    m_store.saveWifi(ssid.c_str(), pass.c_str());
+    m_server.send(200, "text/html",
+        "<!doctype html><html><body style='font-family:system-ui;max-width:420px;"
+        "margin:40px auto;padding:0 16px'><h2>Saved.</h2><p>The device is "
+        "restarting and connecting to your WiFi. You can close this page and "
+        "add it in your app.</p></body></html>");
+
+    delay(800);        // let the response flush before reboot
+    ESP.restart();
+}
+
+void CaptivePortalManager::handleNotFound()
+{
+    // Redirect every unknown request to the portal root — triggers the OS
+    // captive-portal detection so the setup page opens on its own.
+    m_server.sendHeader("Location", "http://192.168.4.1/", true);
+    m_server.send(302, "text/plain", "");
+}
