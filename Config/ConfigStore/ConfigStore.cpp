@@ -62,13 +62,28 @@ uint16_t ConfigStore::getMqttPort() const
     return p;
 }
 
-void ConfigStore::saveMqtt(const char* host, uint16_t port, const char* user, const char* pass)
+void ConfigStore::saveMqtt(const char* host, uint16_t port, const char* user, const char* pass,
+                           const char* deviceId)
 {
     m_prefs.begin(NS, false);
     m_prefs.putString("mqtt.host", host);
     m_prefs.putUShort("mqtt.port", port);
     m_prefs.putString("mqtt.user", user);
     m_prefs.putString("mqtt.pass", pass);
+    m_prefs.putString("mqtt.devid", deviceId);
+    m_prefs.end();
+}
+
+void ConfigStore::getMqttDeviceId(char* out, size_t len) const { getStr("mqtt.devid", out, len); }
+
+void ConfigStore::clearMqtt()
+{
+    m_prefs.begin(NS, false);
+    m_prefs.remove("mqtt.host");
+    m_prefs.remove("mqtt.port");
+    m_prefs.remove("mqtt.user");
+    m_prefs.remove("mqtt.pass");
+    m_prefs.remove("mqtt.devid");
     m_prefs.end();
 }
 

@@ -131,6 +131,20 @@ void setup()
     computeDeviceId();
     Serial.printf("[BOOT] device id: %s\n", g_deviceId);
 
+    // Stored MQTT credentials are issued for one hardware id. If the id no
+    // longer matches (firmware id scheme changed, board swapped), drop them so
+    // the board re-provisions instead of publishing under the wrong identity.
+    if (config.hasMqtt())
+    {
+        char storedId[CFG_MAX];
+        config.getMqttDeviceId(storedId, sizeof(storedId));
+        if (strcmp(storedId, g_deviceId) != 0)
+        {
+            Serial.printf("[BOOT] stored creds belong to '%s' — re-provisioning\n", storedId);
+            config.clearMqtt();
+        }
+    }
+
     // Relays + switches come up first so the room works regardless of network.
     led.begin();
     led.setBrightness(LED_BRIGHTNESS);
@@ -257,10 +271,12 @@ void loop()
 // ===========================================================================
 void computeDeviceId()
 {
-    // Read the MAC in normal byte order so the id matches the MAC printed on
-    // the board/label (ESP.getEfuseMac() returns the bytes reversed).
-    uint8_t mac[6] = {};
-    WiFi.macAddress(mac);
+    // Read straight from efuse — valid before WiFi starts (WiFi.macAddress()
+    // returns zeros/garbage this early). getEfuseMac() packs the six MAC bytes
+    // LSB-first, so extracting byte 0..5 yields the MAC in printed order.
+    const uint64_t raw = ESP.getEfuseMac();
+    uint8_t mac[6];
+    for (uint8_t i = 0; i < 6; i++) mac[i] = (uint8_t)((raw >> (8 * i)) & 0xFF);
     snprintf(g_deviceId, sizeof(g_deviceId), "esp32-%02x%02x%02x%02x%02x%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
@@ -352,7 +368,7 @@ bool cloudProvision()
     const char* pass = doc["mqttPassword"] | "";
     if (!*host || !*user) { Serial.println("[PROVISION] missing fields"); return false; }
 
-    config.saveMqtt(host, port, user, pass);
+    config.saveMqtt(host, port, user, pass, g_deviceId);
     Serial.println("[PROVISION] credentials stored");
     return true;
 }

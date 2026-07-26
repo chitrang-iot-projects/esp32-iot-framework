@@ -34,7 +34,12 @@ public:
     uint16_t getMqttPort() const;
     void getMqttUser(char* out, size_t len) const;
     void getMqttPass(char* out, size_t len) const;
-    void saveMqtt(const char* host, uint16_t port, const char* user, const char* pass);
+    // deviceId is stored with the credentials: they are issued for one specific
+    // hardware id, so a mismatch means they must not be used.
+    void saveMqtt(const char* host, uint16_t port, const char* user, const char* pass,
+                  const char* deviceId);
+    void getMqttDeviceId(char* out, size_t len) const;
+    void clearMqtt();
 
     // Clear only WiFi (keeps MQTT creds) — used when saved WiFi never connects,
     // so the board reopens setup without re-provisioning.
