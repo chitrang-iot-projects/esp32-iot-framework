@@ -257,10 +257,12 @@ void loop()
 // ===========================================================================
 void computeDeviceId()
 {
-    uint64_t mac = ESP.getEfuseMac();
-    // 12 hex chars from the 48-bit MAC → stable, unique, printed on the label.
-    snprintf(g_deviceId, sizeof(g_deviceId), "esp32-%04x%08x",
-             (uint16_t)(mac >> 32), (uint32_t)mac);
+    // Read the MAC in normal byte order so the id matches the MAC printed on
+    // the board/label (ESP.getEfuseMac() returns the bytes reversed).
+    uint8_t mac[6] = {};
+    WiFi.macAddress(mac);
+    snprintf(g_deviceId, sizeof(g_deviceId), "esp32-%02x%02x%02x%02x%02x%02x",
+             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 void restoreRelaysFromNvs()
