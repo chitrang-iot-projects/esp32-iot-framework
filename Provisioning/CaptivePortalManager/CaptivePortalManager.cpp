@@ -51,19 +51,19 @@ void CaptivePortalManager::handleRoot()
         "button{width:100%;margin-top:20px;padding:12px;font-size:16px;background:#2563eb;color:#fff;border:0;border-radius:8px}"
         "</style></head><body><h1>Connect your device</h1>"
         "<form method=POST action=/save>"
-        "<label>WiFi network</label><select name=ssid>");
+        "<label>WiFi network</label>"
+        "<input name=ssid list=nets autocomplete=off placeholder='type or pick' required>"
+        "<datalist id=nets>");
 
     for (int i = 0; i < n; i++)
     {
         page += "<option value='";
         page += WiFi.SSID(i);
         page += "'>";
-        page += WiFi.SSID(i);
-        page += "</option>";
     }
 
     page += F(
-        "</select>"
+        "</datalist>"
         "<label>WiFi password</label><input type=password name=pass>"
         "<button type=submit>Connect</button></form>"
         "<p style='color:#888;font-size:12px;margin-top:20px'>The device will "
