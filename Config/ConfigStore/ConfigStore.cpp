@@ -74,6 +74,14 @@ void ConfigStore::saveMqtt(const char* host, uint16_t port, const char* user, co
 
 // ---- factory reset -----------------------------------------------------
 
+void ConfigStore::clearWifi()
+{
+    m_prefs.begin(NS, false);
+    m_prefs.remove("wifi.ssid");
+    m_prefs.remove("wifi.pass");
+    m_prefs.end();
+}
+
 void ConfigStore::clear()
 {
     m_prefs.begin(NS, false);

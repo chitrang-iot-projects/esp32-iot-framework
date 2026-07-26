@@ -73,6 +73,9 @@ static constexpr uint8_t  FACTORY_BUTTON_PIN = 0;       // BOOT button
 static constexpr uint32_t FACTORY_HOLD_MS    = 5000UL;
 static constexpr uint32_t HEARTBEAT_MS       = 300000UL; // 5 min
 static constexpr uint32_t PROVISION_RETRY_MS = 15000UL;
+// If saved WiFi never connects within this window (wrong password / gone SSID),
+// wipe WiFi and reboot into setup so the installer can re-enter it.
+static constexpr uint32_t WIFI_FIRST_CONNECT_TIMEOUT_MS = 45000UL;
 
 // ---- module instances -----------------------------------------------------
 ConfigStore          config;
@@ -88,6 +91,8 @@ enum class Mode : uint8_t { Provisioning, Normal };
 static Mode     g_mode = Mode::Normal;
 static char     g_deviceId[24] = {};
 static bool     g_wifiWasConnected = false;
+static bool     g_everConnected = false;      // connected at least once this boot
+static uint32_t g_normalBootMs = 0;           // when Normal mode started
 static bool     g_mqttStarted = false;
 static uint32_t g_lastProvisionAttempt = 0;
 static uint32_t g_lastHeartbeat = 0;
@@ -164,6 +169,7 @@ void setup()
         WiFi.mode(WIFI_STA);
         WiFi.begin(ssid, pass);
         led.setState(StatusLedState::Busy);
+        g_normalBootMs = millis();
         Serial.printf("[SETUP] connecting to WiFi '%s'...\n", ssid);
     }
 
@@ -195,6 +201,7 @@ void loop()
     if (connected && !g_wifiWasConnected)
     {
         g_wifiWasConnected = true;
+        g_everConnected = true;
         Serial.printf("[WIFI] connected, ip=%s\n", WiFi.localIP().toString().c_str());
         led.setState(StatusLedState::Busy);
     }
@@ -202,6 +209,17 @@ void loop()
     {
         g_wifiWasConnected = false;
         led.setState(StatusLedState::Warning);
+    }
+
+    // Never connected with these creds within the window → assume wrong SSID/
+    // password. Wipe WiFi and reboot to setup so it can be re-entered. (A board
+    // that connected before keeps retrying — this only guards fresh bad creds.)
+    if (!g_everConnected && (millis() - g_normalBootMs) > WIFI_FIRST_CONNECT_TIMEOUT_MS)
+    {
+        Serial.println("[WIFI] first connect failed — reopening setup");
+        config.clearWifi();
+        delay(300);
+        ESP.restart();
     }
 
     if (connected)

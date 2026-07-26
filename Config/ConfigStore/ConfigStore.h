@@ -36,6 +36,10 @@ public:
     void getMqttPass(char* out, size_t len) const;
     void saveMqtt(const char* host, uint16_t port, const char* user, const char* pass);
 
+    // Clear only WiFi (keeps MQTT creds) — used when saved WiFi never connects,
+    // so the board reopens setup without re-provisioning.
+    void clearWifi();
+
     // ---- factory reset ----
     // Clears WiFi + MQTT config (device identity from MAC is not stored).
     void clear();
