@@ -8,6 +8,29 @@ static const IPAddress AP_IP(192, 168, 4, 1);
 CaptivePortalManager::CaptivePortalManager(ConfigStore& store)
     : m_store(store), m_server(80) {}
 
+// Escape the characters that would otherwise terminate the attribute an SSID is
+// placed in. Without this an SSID containing a quote or ampersand either breaks
+// the page or silently arrives back truncated.
+static String htmlEscape(const String& in)
+{
+    String out;
+    out.reserve(in.length() + 8);
+    for (unsigned int i = 0; i < in.length(); i++)
+    {
+        const char c = in[i];
+        switch (c)
+        {
+            case '&':  out += F("&amp;");  break;
+            case '<':  out += F("&lt;");   break;
+            case '>':  out += F("&gt;");   break;
+            case '"':  out += F("&quot;"); break;
+            case '\'': out += F("&#39;");  break;
+            default:   out += c;           break;   // UTF-8 bytes pass through
+        }
+    }
+    return out;
+}
+
 void CaptivePortalManager::begin(const char* apSuffix)
 {
     char ssid[40];
@@ -42,7 +65,12 @@ void CaptivePortalManager::handleRoot()
     const int n = WiFi.scanNetworks();
 
     String page = F(
-        "<!doctype html><html><head><meta name=viewport "
+        // charset MUST come first and MUST be declared: without it the phone
+        // guesses a legacy encoding, and any SSID character it cannot represent
+        // comes back from the form as an HTML numeric reference (a network named
+        // with an emoji arrived as the literal text "&#128225;"), which is then
+        // stored and can never match the real network.
+        "<!doctype html><html><head><meta charset='utf-8'><meta name=viewport "
         "content='width=device-width,initial-scale=1'>"
         "<title>Device Setup</title><style>"
         "body{font-family:system-ui,sans-serif;max-width:420px;margin:24px auto;padding:0 16px;color:#111}"
@@ -50,7 +78,9 @@ void CaptivePortalManager::handleRoot()
         "select,input{width:100%;padding:10px;font-size:16px;border:1px solid #ccc;border-radius:8px;box-sizing:border-box}"
         "button{width:100%;margin-top:20px;padding:12px;font-size:16px;background:#2563eb;color:#fff;border:0;border-radius:8px}"
         "</style></head><body><h1>Connect your device</h1>"
-        "<form method=POST action=/save>"
+        // accept-charset pins the submission encoding even if a browser ignores
+        // the meta tag — belt and braces on the bug described above.
+        "<form method=POST action=/save accept-charset='utf-8'>"
         "<label>WiFi network</label>"
         "<input name=ssid list=nets autocomplete=off placeholder='type or pick' required>"
         "<datalist id=nets>");
@@ -58,7 +88,7 @@ void CaptivePortalManager::handleRoot()
     for (int i = 0; i < n; i++)
     {
         page += "<option value='";
-        page += WiFi.SSID(i);
+        page += htmlEscape(WiFi.SSID(i));
         page += "'>";
     }
 

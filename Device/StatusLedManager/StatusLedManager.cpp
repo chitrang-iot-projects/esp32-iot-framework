@@ -419,7 +419,7 @@ void StatusLedManager::tickBreathe(uint32_t nowMs)
     BreatheState& breathe = _animState.breathe;
 
     // Catch up all steps that elapsed — prevents the animation from appearing
-    // frozen when loop() was delayed by a blocking call (WiFi init, Firebase
+    // frozen when loop() was delayed by a blocking call (WiFi init, TLS
     // token fetch, etc.).  Without this, setup() alone causes a multi-step
     // deficit that keeps the breathe level stuck near 0 (invisible).
     while (nowMs - _lastAnimationTick >= stepIntervalMs)

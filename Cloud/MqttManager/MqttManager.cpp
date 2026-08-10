@@ -259,6 +259,7 @@ void MqttManager::disable() { m_enabled = false; if (m_client.connected()) m_cli
 bool MqttManager::isEnabled() const { return m_enabled; }
 bool MqttManager::isConnected() const { return const_cast<PubSubClient&>(m_client).connected(); }
 MqttState MqttManager::getState() const { return m_state; }
+int MqttManager::lastBrokerState() const { return const_cast<PubSubClient&>(m_client).state(); }
 
 MqttResult MqttManager::reconnect()
 {

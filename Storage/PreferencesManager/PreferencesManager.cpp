@@ -32,7 +32,7 @@ static constexpr uint32_t CURRENT_VERSION = 1u;
 // Key hashing
 //
 // ESP32 NVS enforces a 15-character key limit.  Application keys like
-// "firebase.databaseUrl" exceed that limit, so every key is hashed with
+// "mqtt.brokerHostname" exceed that limit, so every key is hashed with
 // FNV-1a-32 and formatted as 8 lowercase hex digits (9 bytes with null).
 // FNV-1a is deterministic, collision-resistant, and requires no heap.
 // ---------------------------------------------------------------------------

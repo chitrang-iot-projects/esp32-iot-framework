@@ -3,7 +3,7 @@
 // RelayManager — the single owner of relay GPIO on an ESP32 device.
 //
 // No other module may call pinMode(), digitalWrite(), or digitalRead() on a
-// relay pin.  Higher layers (Firebase, Switch, Scheduler, Scene) interact
+// relay pin.  Higher layers (MQTT, Switch, Scheduler, Scene) interact
 // exclusively through this class:
 //
 //   relay.configureRelay(RelayChannel::Relay1, 23, RelayActiveState::ActiveLow, "Kitchen Light");

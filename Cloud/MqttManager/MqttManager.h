@@ -1,8 +1,8 @@
 #pragma once
 
 // MqttManager — the single owner of all MQTT communication for this ESP32 IoT
-// Framework. Replaces FirebaseManager for the new home-automation-platform,
-// which uses an MQTT broker (EMQX Cloud) instead of Firebase RTDB.
+// Framework, talking to the home-automation-platform via an MQTT broker
+// (EMQX Cloud). MQTT is the framework's only cloud transport.
 //
 // Contract (see home-automation-platform/ai-documents/MQTT_CONTRACT.md):
 //   subscribe : ha/<deviceId>/relay/+/set     payload "1"|"0"
@@ -19,8 +19,7 @@
 // WiFiClientSecure + PubSubClient are stored as value-type members (no heap,
 // matching the framework's no-new rule). PubSubClient's message callback is a
 // plain function pointer with no context argument, so the bridge to the
-// instance goes through a static s_instance pointer — the same technique
-// FirebaseManager uses for its token-status callback. Only one MqttManager
+// instance goes through a static s_instance pointer. Only one MqttManager
 // owns the connection at a time, so a single instance pointer suffices.
 
 #include <Arduino.h>
@@ -122,6 +121,15 @@ public:
     bool      isConnected() const;
     bool      isReady()     const { return isConnected(); }
     MqttState getState()    const;
+
+    // Raw PubSubClient status for the last connection attempt. MqttState says
+    // "Error"; this says WHY, which is the difference between a TLS/network
+    // problem and a rejected credential:
+    //   -4 timeout  -3 lost  -2 TCP/TLS connect failed  -1 disconnected
+    //    0 connected  1 bad protocol  2 bad client id  3 unavailable
+    //    4 bad credentials  5 not authorized
+    // Exposed as a value (not logged here) because managers must not use Serial.
+    int lastBrokerState() const;
 
     // -----------------------------------------------------------------------
     // Publish helpers. When connected: sent immediately. When not connected:

@@ -89,7 +89,10 @@ MqttManager          mqtt;
 // ---- runtime state ---------------------------------------------------------
 enum class Mode : uint8_t { Provisioning, Normal };
 static Mode     g_mode = Mode::Normal;
-static char     g_deviceId[24] = {};
+// Sized to MqttManager's own id limit so the id can never be truncated on only
+// one side of configure() — a half-truncated id would build valid-looking but
+// unsubscribed topics.
+static char     g_deviceId[MQTT_MAX_ID_LEN] = {};
 static bool     g_wifiWasConnected = false;
 static bool     g_everConnected = false;      // connected at least once this boot
 static uint32_t g_normalBootMs = 0;           // when Normal mode started
@@ -97,6 +100,13 @@ static bool     g_mqttStarted = false;
 static uint32_t g_lastProvisionAttempt = 0;
 static uint32_t g_lastHeartbeat = 0;
 static uint32_t g_factoryHoldStart = 0;
+// Credential-rejection recovery. A rotated credential on the platform leaves the
+// board holding a dead password in NVS, and the id-mismatch check cannot see
+// that (the id still matches) — so the board would retry a dead password
+// forever. Count broker auth rejections and re-provision instead.
+static bool     g_provisionedThisBoot = false;   // creds fetched during this run
+static uint8_t  g_authRejects = 0;
+static constexpr uint8_t MQTT_AUTH_REJECT_LIMIT = 3;
 
 namespace PrefKey {
     constexpr const char* RelayState[4] =
@@ -129,7 +139,13 @@ void setup()
     prefs.begin();
     config.begin();
     computeDeviceId();
+#ifdef SECRET_DEVICE_ID_OVERRIDE
+    // Say so out loud — an id that does not match the board's MAC label is
+    // otherwise indistinguishable from the garbage-id bug this replaced.
+    Serial.printf("[BOOT] device id: %s  (PINNED via SECRET_DEVICE_ID_OVERRIDE)\n", g_deviceId);
+#else
     Serial.printf("[BOOT] device id: %s\n", g_deviceId);
+#endif
 
     // Stored MQTT credentials are issued for one hardware id. If the id no
     // longer matches (firmware id scheme changed, board swapped), drop them so
@@ -271,6 +287,26 @@ void loop()
 // ===========================================================================
 void computeDeviceId()
 {
+#ifdef SECRET_DEVICE_ID_OVERRIDE
+    // Adoption override — pin this board to an identity that already exists in
+    // the platform.
+    //
+    // Needed because devices.hardware_id is the ONLY key in the system: the API
+    // publishes commands to ha/<hardware_id>/relay/<n>/set, the per-device
+    // broker user is dev-<hardware_id>, and its EMQX ACL is ha/<hardware_id>/#.
+    // When a row was created by the admin portal with the Hardware ID left
+    // blank, that id is 6 random bytes (esp32-<random>), which by construction
+    // can never equal a MAC-derived id — so a self-provisioned board ends up
+    // subscribed to a topic nobody publishes to, and the toggle silently does
+    // nothing. Using the platform's string here makes all three line up.
+    //
+    // WARNING: this pins exactly ONE physical board. Never flash a secrets.h
+    // carrying an override to a second unit — two boards on one identity fight
+    // over the same command and retained-state topics.
+    static_assert(sizeof(SECRET_DEVICE_ID_OVERRIDE) <= sizeof(g_deviceId),
+                  "SECRET_DEVICE_ID_OVERRIDE longer than g_deviceId");
+    snprintf(g_deviceId, sizeof(g_deviceId), "%s", SECRET_DEVICE_ID_OVERRIDE);
+#else
     // Read straight from efuse — valid before WiFi starts (WiFi.macAddress()
     // returns zeros/garbage this early). getEfuseMac() packs the six MAC bytes
     // LSB-first, so extracting byte 0..5 yields the MAC in printed order.
@@ -279,6 +315,7 @@ void computeDeviceId()
     for (uint8_t i = 0; i < 6; i++) mac[i] = (uint8_t)((raw >> (8 * i)) & 0xFF);
     snprintf(g_deviceId, sizeof(g_deviceId), "esp32-%02x%02x%02x%02x%02x%02x",
              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+#endif
 }
 
 void restoreRelaysFromNvs()
@@ -313,20 +350,85 @@ void onMqttCommand(uint8_t channel, bool on, void* /*ctx*/)
     if (channel < 1 || channel > RELAY_COUNT) return;
     const auto relayCh = static_cast<RelayChannel>(channel - 1);
     relays.setState(relayCh, on ? RelayState::On : RelayState::Off);
+    Serial.printf("[CMD] relay%u -> %s (cloud)\n", channel, on ? "ON" : "OFF");
     mqtt.publishRelayState(channel, relays.isOn(relayCh));
 }
 
-void onMqttEvent(MqttEvent e, MqttResult /*r*/, const char* /*topic*/, void* /*ctx*/)
+void onMqttEvent(MqttEvent e, MqttResult /*r*/, const char* topic, void* /*ctx*/)
 {
+    // The LED cannot distinguish "connected" from "broker rejected our
+    // credentials", and an arriving command is invisible without its topic.
+    // Both are the first things worth knowing when the app cannot switch a
+    // relay, so they get logged.
     switch (e)
     {
         case MqttEvent::Connected:
             led.setState(StatusLedState::Success);
+            g_authRejects = 0;
+            Serial.printf("[MQTT] connected — listening on ha/%s/relay/+/set\n", g_deviceId);
             publishAllRelays();
             publishStatus();
             break;
-        case MqttEvent::Disconnected: led.setState(StatusLedState::Warning); break;
-        case MqttEvent::Error:        led.setState(StatusLedState::Error);   break;
+
+        case MqttEvent::Disconnected:
+            led.setState(StatusLedState::Warning);
+            Serial.println("[MQTT] disconnected");
+            break;
+
+        case MqttEvent::Error:
+        {
+            led.setState(StatusLedState::Error);
+            // -2 means we never got a TLS/TCP session up (host, port, cert,
+            // firewall). 4/5 mean the broker answered and rejected us (wrong
+            // password, or ACL denies this user). Very different fixes.
+            const int st = mqtt.lastBrokerState();
+            const char* why = (st == -2) ? "TCP/TLS connect failed"
+                            : (st == -4) ? "timeout"
+                            : (st ==  4) ? "bad credentials"
+                            : (st ==  5) ? "not authorized (ACL)"
+                            : (st ==  2) ? "bad client id"
+                            : (st ==  3) ? "broker unavailable"
+                            : "see PubSubClient state";
+            Serial.printf("[MQTT] connect failed: state=%d (%s) — retrying with backoff\n", st, why);
+
+            // 4/5 mean the broker rejected our identity, which no amount of
+            // retrying fixes — the stored password is stale. Drop it and
+            // re-provision. Only WiFi is left intact, so this costs no captive
+            // portal round trip.
+            if (st == 4 || st == 5)
+            {
+                if (g_provisionedThisBoot)
+                {
+                    // A credential fetched moments ago was still refused, so the
+                    // platform's stored copy disagrees with the broker itself.
+                    // Re-provisioning would hand back the same dead password, so
+                    // stop here rather than reboot-loop.
+                    Serial.println("[MQTT] freshly provisioned credential also refused — "
+                                   "platform and broker disagree; rotate the device credential");
+                }
+                else if (++g_authRejects >= MQTT_AUTH_REJECT_LIMIT)
+                {
+                    Serial.println("[MQTT] stored credential refused — clearing it and re-provisioning");
+                    config.clearMqtt();     // WiFi config deliberately kept
+                    delay(300);
+                    ESP.restart();
+                }
+            }
+            else
+            {
+                g_authRejects = 0;          // network-class failure, not identity
+            }
+            break;
+        }
+
+        case MqttEvent::CommandReceived:
+            Serial.printf("[MQTT] command received on %s\n", topic ? topic : "");
+            break;
+
+        case MqttEvent::PublishFailed:
+            Serial.printf("[MQTT] publish failed: %s\n", topic ? topic : "");
+            break;
+
         default: break;
     }
 }
@@ -369,6 +471,7 @@ bool cloudProvision()
     if (!*host || !*user) { Serial.println("[PROVISION] missing fields"); return false; }
 
     config.saveMqtt(host, port, user, pass, g_deviceId);
+    g_provisionedThisBoot = true;
     Serial.println("[PROVISION] credentials stored");
     return true;
 }

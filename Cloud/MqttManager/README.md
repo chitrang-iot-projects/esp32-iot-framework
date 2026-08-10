@@ -1,7 +1,8 @@
 # MqttManager
 
-Single owner of MQTT communication for the framework. Replaces `FirebaseManager`
-for the **home-automation-platform** (EMQX Cloud broker instead of Firebase RTDB).
+Single owner of MQTT communication for the framework, talking to the
+**home-automation-platform** via an EMQX Cloud broker. MQTT is the only cloud
+transport in this framework.
 
 ## Dependencies
 
@@ -54,6 +55,6 @@ relay states + status there (see `sketch_july21`).
   to skip validation (`setInsecure()`) for first bring-up only.
 - **Contextless callback bridge.** PubSubClient's message callback has no user
   context, so a single `s_instance` static forwards to the instance — the same
-  technique `FirebaseManager` uses for its token-status callback.
+  single-instance static bridge pattern.
 - **No self-echo.** The device subscribes only to `…/relay/<n>/set`, never to its
   own state topic, so physical toggles and cloud commands never fight.

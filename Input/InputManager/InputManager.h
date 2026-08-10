@@ -3,7 +3,7 @@
 // InputManager — the single owner of all digital input GPIO on an ESP32 device.
 //
 // No other module may call pinMode() or digitalRead() on an input pin.
-// Higher layers (Application, Firebase, Switch, Scene) react to events:
+// Higher layers (Application, MQTT, Switch, Scene) react to events:
 //
 //   input.configureInput(InputChannel::Input1, 13, InputType::TTP223,
 //                        InputMode::PullDown, InputActiveState::ActiveHigh,

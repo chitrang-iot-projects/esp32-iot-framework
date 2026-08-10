@@ -33,7 +33,7 @@ No examples.
 
 No WiFi.
 
-No Firebase.
+No MQTT.
 
 No Switch logic.
 
